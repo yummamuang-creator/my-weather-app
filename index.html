@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>30-Day Weather Vision</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        /* Smooth Fade-In Animation */
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-fade { animation: fadeIn 0.6s ease-out forwards; }
+        
+        /* Glassmorphism Effect */
+        .glass {
+            background: rgba(15, 23, 42, 0.8);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        /* Custom Scrollbar for the dropdown */
+        .custom-scroll::-webkit-scrollbar { width: 6px; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
+    </style>
+</head>
+<body class="bg-[#020617] text-slate-200 min-h-screen font-sans overflow-x-hidden">
+
+    <!-- Decorative Background Glow -->
+    <div class="fixed top-0 left-1/2 -translate-x-1/2 w-full h-full -z-10 opacity-20">
+        <div class="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-cyan-500 blur-[120px] rounded-full"></div>
+        <div class="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-blue-600 blur-[120px] rounded-full"></div>
+    </div>
+
+    <div class="max-w-6xl mx-auto p-6">
+        <!-- Header -->
+        <header class="text-center py-10 animate-fade">
+            <h1 class="text-4xl md:text-6xl font-black tracking-tighter text-white mb-2">
+                WEATHER <span class="text-cyan-400">VISION</span>
+            </h1>
+            <p class="text-slate-400">Advanced 30-Day Climatic Insights</p>
+        </header>
+
+        <!-- Search Section with Live Suggestions -->
+        <div class="relative max-w-xl mx-auto mb-12 animate-fade" style="animation-delay: 0.2s">
+            <div class="relative group">
+                <input type="text" id="cityInput" oninput="handleSearch(this.value)"
+                       placeholder="Search city (e.g. London, Bangkok)..." 
+                       class="w-full bg-slate-900/50 border border-slate-700 rounded-2xl py-4 px-6 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 text-lg transition-all shadow-2xl">
+                
+                <!-- Suggestions Dropdown (The "Google/YouTube" List) -->
+                <div id="suggestions" class="hidden absolute top-full left-0 right-0 mt-2 glass rounded-2xl overflow-hidden z-50 shadow-2xl max-h-64 overflow-y-auto custom-scroll">
+                    <!-- Results will appear here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Dashboard Content -->
+        <div id="dashboard" class="hidden space-y-8 animate-fade" style="animation-delay: 0.4s">
+            
+            <!-- Top Row: Summary & Chart -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <!-- Current Focus Card -->
+                <div class="glass p-8 rounded-[2rem] flex flex-col justify-center items-center text-center">
+                    <h2 id="cityName" class="text-slate-400 uppercase text-xs tracking-[0.2em] mb-4">Location</h2>
+                    <div id="weatherIcon" class="text-6xl mb-4">🌤️</div>
+                    <div id="mainTemp" class="text-7xl font-bold text-white leading-none">--°</div>
+                    <p id="weatherDesc" class="text-cyan-400 font-medium mt-2 italic">Mostly Clear</p>
+                </div>
+
+                <!-- 30-Day Trend Chart -->
+                <div class="lg:col-span-2 glass p-8 rounded-[2rem]">
+                    <div class="flex justify-between items-center mb-6">
+                        <h3 class="font-bold text-lg">Temperature Outlook</h3>
+                        <span class="text-xs bg-cyan-500/10 text-cyan-400 px-3 py-1 rounded-full border border-cyan-500/20">30-Day Ensemble</span>
+                    </div>
+                    <div class="h-56">
+                        <canvas id="weatherChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 30-Day Grid (The "Picture" cards) -->
+            <div>
+                <h3 class="text-xl font-bold mb-6 flex items-center gap-2">
+                    <span class="w-8 h-[2px] bg-cyan-500"></span> 
+                    Monthly Breakdown
+                </h3>
+                <div id="forecastGrid" class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-4">
+                    <!-- Small cards injected by JS -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let myChart = null;
+
+        // --- 1. THE SEARCH LIST (GOOGLE STYLE) ---
+        async function handleSearch(val) {
+            const dropdown = document.getElementById('suggestions');
+            if (val.length < 2) {
+                dropdown.classList.add('hidden');
+                return;
+            }
+
+            try {
+                const res = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${val}&count=5`);
+                const data = await res.json();
+                
+                if (data.results) {
+                    dropdown.classList.remove('hidden');
+                    dropdown.innerHTML = data.results.map(loc => `
+                        <div onclick="selectCity('${loc.name}', ${loc.latitude}, ${loc.longitude})" 
+                             class="p-4 hover:bg-cyan-500/10 cursor-pointer border-b border-slate-800 last:border-0 flex items-center gap-3">
+                            <span>📍</span>
+                            <div>
+                                <div class="font-bold text-white">${loc.name}</div>
+                                <div class="text-xs text-slate-500">${loc.admin1 || ''}, ${loc.country}</div>
+                            </div>
+                        </div>
+                    `).join('');
+                } else {
+                    dropdown.classList.add('hidden');
+                }
+            } catch (e) { console.error(e); }
+        }
+
+        // --- 2. DATA FETCHING ---
+        async function selectCity(name, lat, lon) {
+            document.getElementById('suggestions').classList.add('hidden');
+            document.getElementById('cityInput').value = name;
+            
+            try {
+                const weatherRes = await fetch(`https://ensemble-api.open-meteo.com/v1/ensemble?latitude=${lat}&longitude=${lon}&daily=temperature_2m_max&timezone=auto`);
+                const weatherData = await weatherRes.json();
+                renderDashboard(weatherData, name);
+            } catch (e) { alert("Error fetching weather data"); }
+        }
+
+        // --- 3. UI RENDERING ---
+        function renderDashboard(data, cityName) {
+            const dashboard = document.getElementById('dashboard');
+            dashboard.classList.remove('hidden');
+            
+            const dates = data.daily.time;
+            const temps = data.daily.temperature_2m_max;
+
+            // Update Text
+            document.getElementById('cityName').innerText = cityName;
+            document.getElementById('mainTemp').innerText = `${Math.round(temps[0])}°`;
+
+            // Build Grid Cards
+            const grid = document.getElementById('forecastGrid');
+            grid.innerHTML = dates.map((date, i) => `
+                <div class="glass p-4 rounded-2xl text-center hover:scale-105 transition-transform duration-300">
+                    <div class="text-[10px] text-slate-500 uppercase font-bold mb-1">${date.split('-').slice(1).reverse().join('/')}</div>
+                    <div class="text-xl mb-1">${temps[i] > 30 ? '☀️' : '🌤️'}</div>
+                    <div class="text-lg font-black text-white">${Math.round(temps[i])}°</div>
+                </div>
+            `).join('');
+
+            // Build Chart
+            if (myChart) myChart.destroy();
+            const ctx = document.getElementById('weatherChart').getContext('2d');
+            
+            // Create Gradient for chart
+            const gradient = ctx.createLinearGradient(0, 0, 0, 400);
+            gradient.addColorStop(0, 'rgba(34, 211, 238, 0.4)');
+            gradient.addColorStop(1, 'rgba(34, 211, 238, 0)');
+
+            myChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: dates.map(d => d.split('-')[2]),
+                    datasets: [{
+                        data: temps,
+                        borderColor: '#22d3ee',
+                        borderWidth: 4,
+                        tension: 0.4,
+                        pointRadius: 4,
+                        pointBackgroundColor: '#22d3ee',
+                        fill: true,
+                        backgroundColor: gradient
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: { 
+                        x: { grid: { display: false }, ticks: { color: '#475569' } },
+                        y: { grid: { color: '#1e293b' }, ticks: { color: '#475569' } }
+                    }
+                }
+            });
+        }
+    </script>
+</body>
+</html>
